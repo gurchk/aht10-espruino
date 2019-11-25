@@ -14,14 +14,23 @@ var C = {
   barometricPressure: 243.5 //f
 };
 
+function getRawSensorData(getDataCmd) {
+    i2c.writeTo(C.ahtAddress, C.sensorMeasureCmd);
+    const dataFromSensor = i2c.readFrom(C.ahtAddress, 6);
+    if (getDataCmd) {
+        return ((dataFromSensor[1] << 16) | (dataFromSensor[2] << 8) | dataFromSensor[3]) >> 4;
+    }
+    return ((dataFromSensor[3] & 0x0F) << 16) | (dataFromSensor[4] << 8) | dataFromSensor[5];
+}
+
 function AHT10(pin1,pin2) {
     this.pin1 = pin1;
     this.pin2 = pin2;
 
     i2c.setup({ scl: NodeMCU.D2, sda: NodeMCU.D1, bitrate: 300000 });
-    i2c.writeTo(AHT_address, sensorCalibrateCmd);
+    i2c.writeTo(C.ahtAddress, C.sensorCalibrateCmd);
     setTimeout(() => {
-        if ((readStatus() & 0x68) === 0x08) {
+        if ((i2c.readFrom(C.ahtAddress, 1) & 0x68) === 0x08) {
             console.log('Success');
         } else {
             console.log('Failure');
@@ -37,21 +46,36 @@ function AHT10(pin1,pin2) {
 // };
 
 /** Put most of my comments outside the functions... */
-MOD123.prototype.foo = function() {
-  // you can use C.PRIVATE
-  // or this.C.PUBLIC
+// you can use C.PRIVATE
+// or this.C.PUBLIC
+AHT10.prototype.getTemperature = function() {
+    const rawData = getRawSensorData(C.getTempCmd);
+    return ((200 * rawData) / C.bytesInAMebibyte) - 50;
 };
 
 /** Put most of my comments outside the functions... */
-MOD123.prototype.bar = function() {
+AHT10.prototype.getHumidity = function() {
+    const rawData = getRawSensorData(getRHCmd);
+    if (rawData === 0) {
+        return 0;
+    }
+    return rawData * 100 / bytesInAMebibyte;
 };
+
+AHT10.prototype.getDewPoint = function() {
+    const humidity = this.getHumidity();
+    const temperature = this.getTemperature();
+    const gamma = Math.log(humidity / 100) + waterVapor * temperature / (barometricPressure + temperature);
+    const dewPoint = barometricPressure * gamma / (waterVapor - gamma);
+    return dewPoint;
+}
 
 /** This is 'exported' so it can be used with `require('MOD123.js').connect(pin1,pin2)` */
 exports.connect = function (pin1, pin2) {
   return new AHT10(pin1, pin2);
 };
 
-const AHT_address = 0x38;
+const ahtAddress = 0x38;
 const i2c = new I2C();
 const sensorCalibrateCmd = ;
 const sensorMeasureCmd = [0xAC, 0x33, 0x00];
@@ -62,8 +86,8 @@ const waterVapor = 17.62;//f
 const barometricPressure = 243.5;//f
 
 function getRawSensorData(getDataCmd) {
-    i2c.writeTo(AHT_address, sensorMeasureCmd);
-    const dataFromSensor = i2c.readFrom(AHT_address, 6);
+    i2c.writeTo(C.ahtAddress, sensorMeasureCmd);
+    const dataFromSensor = i2c.readFrom(C.ahtAddress, 6);
     if (getDataCmd) {
         return ((dataFromSensor[1] << 16) | (dataFromSensor[2] << 8) | dataFromSensor[3]) >> 4;
     }
@@ -72,7 +96,7 @@ function getRawSensorData(getDataCmd) {
 
 function setup() {
     i2c.setup({ scl: NodeMCU.D2, sda: NodeMCU.D1, bitrate: 300000 });
-    i2c.writeTo(AHT_address, sensorCalibrateCmd);
+    i2c.writeTo(C.ahtAddress, sensorCalibrateCmd);
     setTimeout(() => {
         if ((readStatus() & 0x68) === 0x08) {
             console.log('Success');
@@ -83,14 +107,14 @@ function setup() {
 }
 
 function readStatus() {
-    return i2c.readFrom(AHT_address, 1);
+    return i2c.readFrom(C.ahtAddress, 1);
 }
 
 function getTemperature() {
     const rawData = getRawSensorData(getTempCmd);
     return ((200 * rawData) / bytesInAMebibyte) - 50;
 }
-:
+
 function getHumidity() {
     const rawData = getRawSensorData(getRHCmd);
     if (rawData === 0) {
